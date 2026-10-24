@@ -1,0 +1,15 @@
+[Unit]
+Description=PlayStation Store UA price bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/game_pricer
+ExecStart=/root/game_pricer/.venv/bin/python -u main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
