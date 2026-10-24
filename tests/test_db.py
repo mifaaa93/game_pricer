@@ -77,6 +77,7 @@ async def test_browse_genre_and_watch(db: Database) -> None:
     assert await db.toggle_watch(1, "A") is True
     assert await db.is_watching(1, "A")
     assert await db.watchers("A") == [1]
+    assert await db.genre_keys() == {"ACTION"}
 
 
 @pytest.mark.asyncio

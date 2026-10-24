@@ -161,9 +161,9 @@ class Database:
         row = await cur.fetchone()
         return int(row[0]) if row else 0
 
-    async def has_genres(self) -> bool:
-        cur = await self.db.execute("SELECT 1 FROM game_genres LIMIT 1")
-        return await cur.fetchone() is not None
+    async def genre_keys(self) -> set[str]:
+        cur = await self.db.execute("SELECT DISTINCT genre_key FROM game_genres")
+        return {str(r[0]) for r in await cur.fetchall()}
 
     async def upsert_user(self, user_id: int, username: str | None, first_name: str | None) -> None:
         now = _now()

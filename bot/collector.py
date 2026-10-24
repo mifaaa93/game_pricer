@@ -58,15 +58,20 @@ class Collector:
             log.info("%s: %s games", platform, n)
             if self._stop.is_set():
                 break
-        tag_genres = (
-            seeded
-            or not await self.db.has_genres()
-            or self._cycle_n % self.config.genre_every == 0
-        )
-        if tag_genres:
-            await self._tag_genres(notify=notify)
+        try:
+            facets = await self.psn.genre_facets()
+        except Exception:
+            log.exception("failed to load genre facets")
+            facets = []
+        known = await self.db.genre_keys()
+        missing = [f for f in facets if f.key not in known]
+        if missing:
+            log.info("genres incomplete %s/%s, tagging %s missing", len(known), len(facets), len(missing))
+            await self._tag_genres(notify=notify, facets=missing)
+        elif facets and self._cycle_n % self.config.genre_every == 0:
+            await self._tag_genres(notify=notify, facets=facets)
         else:
-            log.info("skip genre pass (every %s cycles)", self.config.genre_every)
+            log.info("skip genre pass (%s keys, every %s cycles)", len(known), self.config.genre_every)
         log.info(
             "cycle %s done offers=%s events=%s seed=%s",
             self._cycle_n,
@@ -76,12 +81,7 @@ class Collector:
         )
         return stats
 
-    async def _tag_genres(self, notify: bool) -> None:
-        try:
-            facets = await self.psn.genre_facets()
-        except Exception:
-            log.exception("failed to load genre facets")
-            return
+    async def _tag_genres(self, notify: bool, facets) -> None:
         log.info("tagging %s genres", len(facets))
         tagged = 0
         for facet in facets:
