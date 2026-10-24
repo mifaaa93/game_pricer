@@ -55,7 +55,7 @@ def _preview(game: dict) -> LinkPreviewOptions | None:
 
 async def send_game_card(callback: CallbackQuery, db: Database, game: dict) -> None:
     watching = await db.is_watching(callback.from_user.id, game["product_id"])
-    history = await db.history(game["product_id"], limit=3)
+    history = await db.history(game["product_id"], limit=10)
     text = game_card(game, watching, history)
     kb = game_kb(game, watching)
     if not callback.message:

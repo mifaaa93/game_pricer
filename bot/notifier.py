@@ -9,8 +9,8 @@ from aiogram.types import InlineKeyboardMarkup
 
 from .config import Config
 from .db import Database
-from .formatters import channel_digest, game_card, user_change
-from .keyboards import game_kb
+from .formatters import channel_caption, channel_digest, game_card, user_change
+from .keyboards import game_kb, store_kb
 
 log = logging.getLogger(__name__)
 
@@ -81,25 +81,53 @@ class Notifier:
             if events:
                 await self.db.mark_events([e["id"] for e in events], "notified_channel")
             return
-        events = await self.db.pending_events("notified_channel", limit=200)
+        events = await self.db.pending_events("notified_channel", limit=80)
         if not events:
             return
         changes = [e for e in events if e.get("kind") != "new"]
         news = [e for e in events if e.get("kind") == "new"]
-        messages: list[str] = []
-        if changes:
-            messages.extend(channel_digest(changes))
+        changes.sort(
+            key=lambda e: (
+                0
+                if (e.get("old_price") is not None and e.get("new_price") is not None and e["new_price"] < e["old_price"])
+                else 1,
+                e.get("id") or 0,
+            )
+        )
+        sent_ids: list[int] = []
+        batch = changes[:15]
+        chat_id = self.config.channel_id
+        for event in batch:
+            game = await self.db.get_game(event["product_id"])
+            if not game:
+                game = {
+                    "product_id": event["product_id"],
+                    "name": event.get("name"),
+                    "cover_url": event.get("cover_url"),
+                    "store_url": event.get("store_url"),
+                    "current_price": event.get("new_price"),
+                    "base_price": event.get("new_base"),
+                    "discount_text": event.get("new_discount"),
+                    "discount_percent": event.get("discount_percent"),
+                    "platforms": [],
+                    "genres": [],
+                }
+            history = await self.db.history(event["product_id"], limit=10)
+            text = channel_caption(event, game, history)
+            await self._send(chat_id, text, photo=game.get("cover_url"), reply_markup=store_kb(game))
+            sent_ids.append(event["id"])
+            await asyncio.sleep(0.4)
         if news:
-            shown = news[:25]
+            shown = news[:20]
             extra = len(news) - len(shown)
-            header = "PlayStation Store UA — новые игры"
-            messages.extend(channel_digest(shown, header=header))
-            if extra > 0:
+            messages = channel_digest(shown, header="PlayStation Store UA — новые игры")
+            if extra > 0 and messages:
                 messages[-1] += f"\n\nещё {extra} новых игр в каталоге"
-        for text in messages:
-            await self._send(self.config.channel_id, text)
-        await self.db.mark_events([e["id"] for e in events], "notified_channel")
-        log.info("channel: %s events", len(events))
+            for text in messages:
+                await self._send(chat_id, text)
+            sent_ids.extend(e["id"] for e in news)
+        await self.db.mark_events(sent_ids, "notified_channel")
+        log.info("channel: %s cards, %s new", len(batch), len(news))
 
     async def _flush_users(self) -> None:
         events = await self.db.pending_events("notified_users", limit=100)
@@ -113,7 +141,7 @@ class Notifier:
             if not user_ids:
                 continue
             game = await self.db.get_game(event["product_id"])
-            history = await self.db.history(event["product_id"], limit=5) if game else []
+            history = await self.db.history(event["product_id"], limit=10) if game else []
             for user_id in user_ids:
                 if game:
                     text = user_change(event) + "\n\n" + game_card(game, watching=True, history=history)

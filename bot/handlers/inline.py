@@ -12,7 +12,7 @@ from aiogram.types import (
 
 from .. import texts
 from ..db import Database
-from ..formatters import game_card, inline_description
+from ..formatters import HISTORY_LIMIT, game_card, inline_description
 from ..keyboards import game_kb
 from ..psn import thumb_url
 
@@ -21,8 +21,8 @@ router = Router()
 PAGE = 20
 
 
-def _result(game: dict, watching: bool) -> InlineQueryResultArticle:
-    text = game_card(game, watching)
+def _result(game: dict, watching: bool, history: list | None = None) -> InlineQueryResultArticle:
+    text = game_card(game, watching, history)
     kb = game_kb(game, watching)
     thumb = thumb_url(game.get("cover_url"))
     payload: dict = {
@@ -77,8 +77,13 @@ async def inline_search(query: InlineQuery, db: Database) -> None:
     rows = rows[:PAGE]
 
     user_id = query.from_user.id if query.from_user else 0
-    watched = await db.watching_ids(user_id, [g["product_id"] for g in rows]) if user_id else set()
-    results = [_result(game, game["product_id"] in watched) for game in rows]
+    ids = [g["product_id"] for g in rows]
+    watched = await db.watching_ids(user_id, ids) if user_id else set()
+    histories = await db.history_many(ids, limit=HISTORY_LIMIT)
+    results = [
+        _result(game, game["product_id"] in watched, histories.get(game["product_id"]))
+        for game in rows
+    ]
 
     await query.answer(
         results,

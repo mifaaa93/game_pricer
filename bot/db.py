@@ -458,7 +458,7 @@ class Database:
         game["genres"] = [dict(r) for r in await cur.fetchall()]
         return game
 
-    async def history(self, product_id: str, limit: int = 8) -> list[dict[str, Any]]:
+    async def history(self, product_id: str, limit: int = 10) -> list[dict[str, Any]]:
         cur = await self.db.execute(
             """
             SELECT price, base_price, discount_text, recorded_at
@@ -470,6 +470,34 @@ class Database:
             (product_id, limit),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+    async def history_many(
+        self, product_ids: list[str], limit: int = 10
+    ) -> dict[str, list[dict[str, Any]]]:
+        if not product_ids:
+            return {}
+        placeholders = ",".join("?" * len(product_ids))
+        cur = await self.db.execute(
+            f"""
+            SELECT product_id, price, base_price, discount_text, recorded_at
+            FROM (
+                SELECT product_id, price, base_price, discount_text, recorded_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY product_id ORDER BY recorded_at DESC
+                       ) AS rn
+                FROM price_history
+                WHERE product_id IN ({placeholders})
+            )
+            WHERE rn <= ?
+            ORDER BY recorded_at DESC
+            """,
+            (*product_ids, limit),
+        )
+        out: dict[str, list[dict[str, Any]]] = {pid: [] for pid in product_ids}
+        for row in await cur.fetchall():
+            item = dict(row)
+            out[item["product_id"]].append(item)
+        return out
 
     async def is_watching(self, user_id: int, product_id: str) -> bool:
         cur = await self.db.execute(

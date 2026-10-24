@@ -54,6 +54,9 @@ async def test_price_drop_creates_event(db: Database) -> None:
     assert len(hist) == 2
     pending = await db.pending_events("notified_channel")
     assert len(pending) == 1
+    many = await db.history_many(["A", "missing"], limit=10)
+    assert len(many["A"]) == 2
+    assert many["missing"] == []
 
 
 @pytest.mark.asyncio

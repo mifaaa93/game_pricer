@@ -130,6 +130,15 @@ def games_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def store_kb(game: dict[str, Any]) -> InlineKeyboardMarkup | None:
+    store = game.get("store_url")
+    if not store:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="В магазин", url=store)]]
+    )
+
+
 def game_kb(game: dict[str, Any], watching: bool) -> InlineKeyboardMarkup:
     product_id = game["product_id"]
     watch = "★ Слежу" if watching else "☆ Следить"

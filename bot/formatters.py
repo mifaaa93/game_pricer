@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from html import escape
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .price import format_price, price_delta_label
+
+KYIV = ZoneInfo("Europe/Kyiv")
+HISTORY_LIMIT = 10
 
 STORE_BASE = "https://store.playstation.com/uk-ua/product/"
 
@@ -92,11 +97,42 @@ def game_card(
 
     if watching:
         lines.append("★ в списке")
-    if history and len(history) >= 2:
-        prev = format_price(history[1].get("price"))
-        if prev != price_now:
-            lines.append(f"было {escape(prev)}")
+    lines.extend(_history_lines(history, current))
     return "\n".join(lines)
+
+
+def format_history_when(iso: str | None) -> str:
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(KYIV).strftime("%d.%m.%y %H:%M")
+    except ValueError:
+        return str(iso)[:16]
+
+
+def _history_lines(history: list[dict[str, Any]] | None, current: int | None) -> list[str]:
+    if not history:
+        return []
+    rows = history[:HISTORY_LIMIT]
+    lines = ["История цен"]
+    prices: list[int] = []
+    if current is not None:
+        prices.append(current)
+    for row in rows:
+        price = row.get("price")
+        if isinstance(price, int):
+            prices.append(price)
+        when = format_history_when(row.get("recorded_at"))
+        disc = row.get("discount_text") or ""
+        extra = f"  {escape(str(disc))}" if disc else ""
+        lines.append(f"{escape(when)}  {escape(format_price(price))}{extra}")
+    uniq = {p for p in prices if p is not None}
+    if len(uniq) >= 2:
+        lines.append(f"мин {format_price(min(uniq))} · макс {format_price(max(uniq))}")
+    return lines
 
 
 def store_url(event: dict[str, Any]) -> str | None:
@@ -158,3 +194,47 @@ def channel_digest(events: list[dict[str, Any]], header: str | None = None) -> l
 
 def user_change(event: dict[str, Any]) -> str:
     return "<b>Изменение цены</b>\n" + change_line(event)
+
+
+def change_headline(event: dict[str, Any]) -> str:
+    if event.get("kind") == "new":
+        return "🆕 Новая игра в каталоге"
+    old_p = event.get("old_price")
+    new_p = event.get("new_price")
+    if old_p is not None and new_p is not None and new_p < old_p:
+        return "📉 Цена упала"
+    if old_p is not None and new_p is not None and new_p > old_p:
+        return "📈 Цена выросла"
+    return "💱 Цена изменилась"
+
+
+def price_move_line(event: dict[str, Any]) -> str:
+    old_p = event.get("old_price")
+    new_p = event.get("new_price")
+    if old_p is None or new_p is None or old_p == new_p:
+        return ""
+    discount = event.get("new_discount") or ""
+    extra = f"  {escape(discount)}" if discount else ""
+    delta = price_delta_label(old_p, new_p)
+    tail = f"  ({escape(delta)})" if delta else ""
+    return f"{format_price(old_p)} → <b>{format_price(new_p)}</b>{extra}{tail}"
+
+
+def channel_caption(
+    event: dict[str, Any],
+    game: dict[str, Any],
+    history: list[dict[str, Any]] | None = None,
+) -> str:
+    head = f"<b>{escape(change_headline(event))}</b>"
+    move = price_move_line(event)
+    hist = history or []
+    for limit in (HISTORY_LIMIT, 6, 3, 0):
+        card = game_card(game, watching=False, history=hist[:limit] if limit else None)
+        parts = [head]
+        if move:
+            parts.append(move)
+        parts.append(card)
+        text = "\n\n".join(parts)
+        if len(text) <= 1024:
+            return text
+    return text[:1020] + "…"

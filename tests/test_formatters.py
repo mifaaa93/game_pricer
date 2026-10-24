@@ -1,4 +1,4 @@
-from bot.formatters import change_line, channel_digest, game_card
+from bot.formatters import change_line, channel_caption, channel_digest, game_card
 
 
 def test_sale_card() -> None:
@@ -72,6 +72,35 @@ def test_channel_line_links_to_store() -> None:
     assert "store.playstation.com/uk-ua/product/EP4034-CUSA19582_00-0000GINGAFORCEEU" in digest[0]
 
 
+def test_channel_caption_has_drop_and_history() -> None:
+    html = channel_caption(
+        {
+            "kind": "change",
+            "old_price": 64900,
+            "new_price": 6490,
+            "new_discount": "-90%",
+        },
+        {
+            "name": "Ginga Force",
+            "platforms": ["PS4"],
+            "genres": [{"genre_name": "Экшен"}],
+            "current_price": 6490,
+            "base_price": 64900,
+            "discount_percent": 90,
+        },
+        history=[
+            {"price": 6490, "discount_text": "-90%", "recorded_at": "2026-10-24T13:00:00+00:00"},
+            {"price": 64900, "discount_text": None, "recorded_at": "2026-09-01T10:00:00+00:00"},
+        ],
+    )
+    assert "Цена упала" in html
+    assert "Ginga Force" in html
+    assert "64,90 ₴" in html
+    assert "История цен" in html
+    assert "мин" in html
+    assert len(html) <= 1024
+
+
 def test_watch_and_history() -> None:
     html = game_card(
         {
@@ -81,7 +110,17 @@ def test_watch_and_history() -> None:
             "base_price": 10000,
         },
         watching=True,
-        history=[{"price": 10000}, {"price": 20000}],
+        history=[
+            {"price": 10000, "discount_text": None, "recorded_at": "2026-10-24T13:00:00+00:00"},
+            {"price": 20000, "discount_text": "-50%", "recorded_at": "2026-09-01T10:00:00+00:00"},
+            {"price": 25000, "discount_text": None, "recorded_at": "2026-08-15T10:00:00+00:00"},
+        ],
     )
     assert "★ в списке" in html
-    assert "было 200 ₴" in html
+    assert "История цен" in html
+    assert "100 ₴" in html
+    assert "200 ₴" in html
+    assert "-50%" in html
+    assert "мин 100 ₴" in html
+    assert "макс 250 ₴" in html
+    assert "24.10.26" in html

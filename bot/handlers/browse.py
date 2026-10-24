@@ -90,7 +90,7 @@ async def toggle_watch(callback: CallbackQuery, db: Database) -> None:
         await callback.answer("Игра не найдена", show_alert=True)
         return
     watching = await db.toggle_watch(callback.from_user.id, product_id)
-    history = [] if callback.inline_message_id else await db.history(product_id, limit=3)
+    history = await db.history(product_id, limit=10)
     text = game_card(game, watching, history)
     kb = game_kb(game, watching)
     try:
