@@ -1,4 +1,4 @@
-from bot.psn import parse_offer, thumb_url
+from bot.psn import is_demo, parse_offer, thumb_url
 
 
 SAMPLE = {
@@ -32,6 +32,27 @@ def test_parse_offer() -> None:
     assert offer.cover_url.endswith("cover.jpg")
     assert "uk-ua/product/" in offer.store_url
     assert offer.plus_included is False
+
+
+def test_is_demo() -> None:
+    assert is_demo("DEMO", "Fracked Demo")
+    assert is_demo("FULL_GAME", "Tormented Souls Demo")
+    assert is_demo("GAME_BUNDLE", "Демо-версія Bramble: The Mountain King")
+    assert is_demo("GAME_BUNDLE", "Tales of Arise Demo Version")
+    assert not is_demo("FULL_GAME", "Demonschool")
+    assert not is_demo("FULL_GAME", "Democracy 4: Console Edition")
+    assert not is_demo("FULL_GAME", "The Last of Us")
+
+
+def test_parse_skips_demo() -> None:
+    raw = {
+        "id": "EP0000-CUSA00000_00-DEMO",
+        "name": "Fracked Demo",
+        "platforms": ["PS4"],
+        "storeDisplayClassification": "DEMO",
+        "price": {"basePrice": "Безкоштовно", "discountedPrice": "Безкоштовно", "isFree": True},
+    }
+    assert parse_offer(raw, "uk-ua") is None
 
 
 def test_parse_plus_catalog_not_a_sale() -> None:

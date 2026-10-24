@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 import aiosqlite
 
-from .psn import Offer
+from .psn import Offer, is_demo
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
@@ -139,6 +139,7 @@ class Database:
         await self.db.execute("PRAGMA foreign_keys=ON")
         await self.db.executescript(SCHEMA)
         await self._migrate()
+        await self.purge_demos()
         await self.db.commit()
 
     async def _migrate(self) -> None:
@@ -150,6 +151,15 @@ class Database:
             await self.db.execute(
                 "ALTER TABLE games ADD COLUMN plus_included INTEGER NOT NULL DEFAULT 0"
             )
+
+    async def purge_demos(self) -> int:
+        cur = await self.db.execute("SELECT product_id, name, classification FROM games")
+        ids = [row[0] for row in await cur.fetchall() if is_demo(row[2], row[1])]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        await self.db.execute(f"DELETE FROM games WHERE product_id IN ({placeholders})", ids)
+        return len(ids)
 
     async def close(self) -> None:
         if self._db is not None:

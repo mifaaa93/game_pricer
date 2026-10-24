@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 from urllib.parse import urlencode
@@ -131,10 +132,24 @@ def plus_label(branding: str | None, upsell: str | None) -> str | None:
     return name
 
 
+_DEMO_WORD = re.compile(
+    r"(?i)(?:^|[\s(\[\-–])(?:demo|демо)(?:$|[\s)\]\-–]|-верс)|demo version|gameplay demo|free demo"
+)
+
+
+def is_demo(classification: str | None, name: str | None) -> bool:
+    if (classification or "").upper() == "DEMO":
+        return True
+    return bool(_DEMO_WORD.search(name or ""))
+
+
 def parse_offer(raw: dict[str, Any], locale: str) -> Offer | None:
     product_id = raw.get("id")
     name = (raw.get("name") or "").strip()
     if not product_id or not name:
+        return None
+    classification = raw.get("storeDisplayClassification") or ""
+    if is_demo(classification, name):
         return None
     price_raw = raw.get("price") or {}
     branding = _first_brand(price_raw.get("serviceBranding")) or _first_brand(
@@ -167,7 +182,7 @@ def parse_offer(raw: dict[str, Any], locale: str) -> Offer | None:
         product_id=product_id,
         name=name,
         platforms=platforms,
-        classification=raw.get("storeDisplayClassification") or "",
+        classification=classification,
         cover_url=_cover(raw.get("media")),
         price=current,
         base_price=base,

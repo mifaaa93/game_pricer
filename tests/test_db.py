@@ -31,6 +31,16 @@ def _offer(pid: str, price: int, **kwargs) -> Offer:
 
 
 @pytest.mark.asyncio
+async def test_purge_demos(db: Database) -> None:
+    await db.apply_offer(_offer("A", 0, name="Fracked Demo"), notify=False)
+    await db.apply_offer(_offer("B", 10000, name="God of War"), notify=False)
+    n = await db.purge_demos()
+    assert n == 1
+    assert await db.get_game("A") is None
+    assert await db.get_game("B") is not None
+
+
+@pytest.mark.asyncio
 async def test_seed_has_history_without_event(db: Database) -> None:
     event = await db.apply_offer(_offer("A", 69900), notify=False)
     assert event is None
