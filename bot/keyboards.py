@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from . import texts
 from .formatters import list_button_text
@@ -16,47 +11,47 @@ GENRES_PER_PAGE = 12
 GAMES_PER_PAGE = 8
 
 
-def main_reply() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=texts.BTN_SEARCH), KeyboardButton(text=texts.BTN_SALE)],
-            [KeyboardButton(text=texts.BTN_CATALOG), KeyboardButton(text=texts.BTN_MY)],
-            [KeyboardButton(text=texts.BTN_HELP)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Поиск или меню…",
-    )
+def _pages(total: int, per_page: int) -> int:
+    return max(1, (total + per_page - 1) // per_page)
 
 
-def search_inline_kb(query: str = "") -> InlineKeyboardMarkup:
-    label = "Найти игру" if not query else f"Искать «{query[:40]}»"
+def home_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=texts.BTN_SEARCH, callback_data="home:search")],
             [
-                InlineKeyboardButton(
-                    text=label,
-                    switch_inline_query_current_chat=query,
-                )
-            ]
+                InlineKeyboardButton(text=texts.BTN_SALE, callback_data="home:sale"),
+                InlineKeyboardButton(text=texts.BTN_CATALOG, callback_data="home:cat"),
+            ],
+            [
+                InlineKeyboardButton(text=texts.BTN_MY, callback_data="home:my"),
+                InlineKeyboardButton(text=texts.BTN_HELP, callback_data="home:help"),
+            ],
         ]
     )
+
+
+def search_inline_kb(query: str = "", back: bool = True) -> InlineKeyboardMarkup:
+    label = "🔍 Найти игру" if not query else f"🔍 Искать «{query[:32]}»"
+    rows = [
+        [InlineKeyboardButton(text=label, switch_inline_query_current_chat=query)],
+    ]
+    if back:
+        rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="home:")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def platform_kb(prefix: str = "cat") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="PS4", callback_data=f"{prefix}:PS4"),
-                InlineKeyboardButton(text="PS5", callback_data=f"{prefix}:PS5"),
+                InlineKeyboardButton(text="🔵 PS4", callback_data=f"{prefix}:PS4"),
+                InlineKeyboardButton(text="⚪ PS5", callback_data=f"{prefix}:PS5"),
             ],
-            [InlineKeyboardButton(text="PS4 и PS5", callback_data=f"{prefix}:all")],
+            [InlineKeyboardButton(text="🎮 PS4 и PS5", callback_data=f"{prefix}:all")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="home:")],
         ]
     )
-
-
-def _pages(total: int, per_page: int) -> int:
-    return max(1, (total + per_page - 1) // per_page)
 
 
 def genre_kb(
@@ -66,15 +61,16 @@ def genre_kb(
     source: str = "cat",
 ) -> InlineKeyboardMarkup:
     extra = [
-        InlineKeyboardButton(text="Все игры", callback_data=f"l:{source}:{platform}:ALL:0"),
-        InlineKeyboardButton(text="Скидки", callback_data=f"l:{source}:{platform}:SALE:0"),
+        InlineKeyboardButton(text="📚 Все игры", callback_data=f"l:{source}:{platform}:ALL:0"),
+        InlineKeyboardButton(text="🔥 Скидки", callback_data=f"l:{source}:{platform}:SALE:0"),
     ]
     start = page * GENRES_PER_PAGE
     chunk = genres[start : start + GENRES_PER_PAGE]
     rows: list[list[InlineKeyboardButton]] = [extra]
     row: list[InlineKeyboardButton] = []
     for g in chunk:
-        label = f"{g['genre_name']} ({g['n']})"
+        emoji = texts.GENRE_EMOJI.get(g["genre_key"], "🎲")
+        label = f"{emoji} {g['genre_name']} ({g['n']})"
         row.append(
             InlineKeyboardButton(
                 text=label[:64],
@@ -89,12 +85,12 @@ def genre_kb(
     nav: list[InlineKeyboardButton] = []
     total_pages = _pages(len(genres), GENRES_PER_PAGE)
     if page > 0:
-        nav.append(InlineKeyboardButton(text="←", callback_data=f"gr:{source}:{platform}:{page-1}"))
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"gr:{source}:{platform}:{page-1}"))
     if page + 1 < total_pages:
-        nav.append(InlineKeyboardButton(text="→", callback_data=f"gr:{source}:{platform}:{page+1}"))
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"gr:{source}:{platform}:{page+1}"))
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="Платформа", callback_data=f"plat:{source}")])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"plat:{source}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -114,19 +110,19 @@ def games_kb(
     total_pages = _pages(total, GAMES_PER_PAGE)
     if page > 0:
         nav.append(
-            InlineKeyboardButton(text="←", callback_data=f"l:{source}:{platform}:{genre}:{page-1}")
+            InlineKeyboardButton(text="⬅️", callback_data=f"l:{source}:{platform}:{genre}:{page-1}")
         )
     if page + 1 < total_pages:
         nav.append(
-            InlineKeyboardButton(text="→", callback_data=f"l:{source}:{platform}:{genre}:{page+1}")
+            InlineKeyboardButton(text="➡️", callback_data=f"l:{source}:{platform}:{genre}:{page+1}")
         )
     if nav:
         rows.append(nav)
     if source == "sale":
-        back = f"plat:sale"
+        back = "plat:sale"
     else:
         back = f"gr:{source}:{platform}:0"
-    rows.append([InlineKeyboardButton(text="Назад", callback_data=back)])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -135,19 +131,21 @@ def store_kb(game: dict[str, Any]) -> InlineKeyboardMarkup | None:
     if not store:
         return None
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="В магазин", url=store)]]
+        inline_keyboard=[[InlineKeyboardButton(text="🛒 В магазин", url=store)]]
     )
 
 
-def game_kb(game: dict[str, Any], watching: bool) -> InlineKeyboardMarkup:
+def game_kb(game: dict[str, Any], watching: bool, back: bool = True) -> InlineKeyboardMarkup:
     product_id = game["product_id"]
-    watch = "★ Слежу" if watching else "☆ Следить"
+    watch = "⭐ Слежу" if watching else "☆ Следить"
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=watch, callback_data=f"w:{product_id}")],
     ]
     store = game.get("store_url")
     if store:
-        rows.append([InlineKeyboardButton(text="В магазин", url=store)])
+        rows.append([InlineKeyboardButton(text="🛒 В магазин", url=store)])
+    if back:
+        rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -161,9 +159,16 @@ def my_games_kb(games: list[dict[str, Any]], page: int = 0) -> InlineKeyboardMar
     nav: list[InlineKeyboardButton] = []
     total_pages = _pages(len(games), GAMES_PER_PAGE)
     if page > 0:
-        nav.append(InlineKeyboardButton(text="←", callback_data=f"my:{page-1}"))
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"my:{page-1}"))
     if page + 1 < total_pages:
-        nav.append(InlineKeyboardButton(text="→", callback_data=f"my:{page+1}"))
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"my:{page+1}"))
     if nav:
         rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="home:")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def help_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="home:")]]
+    )

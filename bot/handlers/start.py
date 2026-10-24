@@ -2,27 +2,45 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import ChatMemberUpdated, Message
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, ReplyKeyboardRemove
 
 from .. import texts
 from ..config import Config
 from ..db import Database
-from ..keyboards import main_reply
+from ..keyboards import help_kb, home_kb, search_inline_kb
+from ..screens import set_nav, show
 
 router = Router()
+
+
+async def show_home(event: Message | CallbackQuery, db: Database, name: str | None = None) -> None:
+    if isinstance(event, CallbackQuery) and event.from_user:
+        name = name or event.from_user.first_name
+        user_id = event.from_user.id
+    elif isinstance(event, Message) and event.from_user:
+        name = name or event.from_user.first_name
+        user_id = event.from_user.id
+    else:
+        return
+    set_nav(user_id, screen="home")
+    await show(event, db, "home", texts.WELCOME.format(name=name or "друг"), home_kb())
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, db: Database) -> None:
     await db.upsert_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
-    name = message.from_user.first_name or "друг"
-    await message.answer(texts.WELCOME.format(name=name), reply_markup=main_reply())
+    try:
+        gone = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
+        await gone.delete()
+    except Exception:
+        pass
+    await show_home(message, db)
 
 
 @router.message(Command("help"))
-@router.message(F.text == texts.BTN_HELP)
-async def cmd_help(message: Message) -> None:
-    await message.answer(texts.HELP, reply_markup=main_reply())
+async def cmd_help(message: Message, db: Database) -> None:
+    set_nav(message.from_user.id, screen="help")
+    await show(message, db, "help", texts.HELP, help_kb())
 
 
 @router.message(Command("stats"))
@@ -30,7 +48,45 @@ async def cmd_stats(message: Message, db: Database, config: Config) -> None:
     if config.admin_ids and message.from_user.id not in config.admin_ids:
         return
     stats = await db.stats()
-    await message.answer(texts.STATS.format(**stats))
+    await show(message, db, "help", texts.STATS.format(**stats), help_kb())
+
+
+@router.callback_query(F.data.startswith("home:"))
+async def home_nav(callback: CallbackQuery, db: Database) -> None:
+    action = (callback.data or "home:").split(":", 1)[1]
+    if action in {"", "home"}:
+        await show_home(callback, db)
+        await callback.answer()
+        return
+    if action == "help":
+        set_nav(callback.from_user.id, screen="help")
+        await show(callback, db, "help", texts.HELP, help_kb())
+        await callback.answer()
+        return
+    if action == "search":
+        set_nav(callback.from_user.id, screen="search")
+        await show(callback, db, "search", texts.SEARCH_HINT, search_inline_kb())
+        await callback.answer()
+        return
+    if action == "cat":
+        from .browse import open_platforms
+
+        await open_platforms(callback, db, "cat")
+        await callback.answer()
+        return
+    if action == "sale":
+        from .browse import open_platforms
+
+        await open_platforms(callback, db, "sale")
+        await callback.answer()
+        return
+    if action == "my":
+        from .watchlist import open_my
+
+        await open_my(callback, db)
+        await callback.answer()
+        return
+    await callback.answer()
 
 
 @router.my_chat_member()

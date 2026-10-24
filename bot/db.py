@@ -98,6 +98,12 @@ CREATE INDEX IF NOT EXISTS idx_events_users ON price_events(notified_users, id);
 CREATE INDEX IF NOT EXISTS idx_watches_product ON watches(product_id);
 CREATE INDEX IF NOT EXISTS idx_platforms_platform ON game_platforms(platform);
 CREATE INDEX IF NOT EXISTS idx_genres_key ON game_genres(genre_key);
+
+CREATE TABLE IF NOT EXISTS media_cache (
+    key TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 PAGE = 8
@@ -165,6 +171,27 @@ class Database:
         if self._db is not None:
             await self._db.close()
             self._db = None
+
+    async def get_media(self, key: str) -> str | None:
+        cur = await self.db.execute("SELECT file_id FROM media_cache WHERE key=?", (key,))
+        row = await cur.fetchone()
+        return str(row[0]) if row else None
+
+    async def set_media(self, key: str, file_id: str) -> None:
+        async with self._lock:
+            await self.db.execute(
+                """
+                INSERT INTO media_cache (key, file_id, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET file_id=excluded.file_id, updated_at=excluded.updated_at
+                """,
+                (key, file_id, _now()),
+            )
+            await self.db.commit()
+
+    async def drop_media(self, key: str) -> None:
+        async with self._lock:
+            await self.db.execute("DELETE FROM media_cache WHERE key=?", (key,))
+            await self.db.commit()
 
     async def games_count(self) -> int:
         cur = await self.db.execute("SELECT COUNT(*) FROM games")

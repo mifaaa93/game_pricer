@@ -6,8 +6,15 @@ from aiogram.types import CallbackQuery, LinkPreviewOptions, Message
 from .. import texts
 from ..db import Database
 from ..formatters import game_card
-from ..keyboards import GAMES_PER_PAGE, game_kb, games_kb, genre_kb, platform_kb, search_inline_kb
-from .watchlist import send_game_card
+from ..keyboards import (
+    GAMES_PER_PAGE,
+    game_kb,
+    games_kb,
+    genre_kb,
+    platform_kb,
+    search_inline_kb,
+)
+from ..screens import asset_key_for_genre, get_nav, set_nav, show
 
 router = Router()
 
@@ -16,34 +23,55 @@ def _plat_label(platform: str) -> str:
     return texts.PLATFORM_LABEL.get(platform, platform)
 
 
-async def _ensure_catalog(message: Message, db: Database) -> bool:
+async def _ensure_catalog(event: Message | CallbackQuery, db: Database) -> bool:
     if await db.games_count() == 0:
-        await message.answer(texts.EMPTY_CATALOG)
+        await show(event, db, "catalog", texts.EMPTY_CATALOG, platform_kb("cat"))
         return False
     return True
 
 
+async def open_platforms(event: Message | CallbackQuery, db: Database, source: str) -> None:
+    if not await _ensure_catalog(event, db):
+        return
+    user_id = event.from_user.id if event.from_user else 0
+    set_nav(user_id, screen="plat", source=source)
+    asset = "sale" if source == "sale" else "catalog"
+    await show(event, db, asset, texts.PICK_PLATFORM, platform_kb(source))
+
+
 @router.message(F.text == texts.BTN_CATALOG)
 async def catalog_start(message: Message, db: Database) -> None:
-    if not await _ensure_catalog(message, db):
-        return
-    await message.answer(texts.PICK_PLATFORM, reply_markup=platform_kb("cat"))
+    await open_platforms(message, db, "cat")
 
 
 @router.message(F.text == texts.BTN_SALE)
 async def sale_start(message: Message, db: Database) -> None:
-    if not await _ensure_catalog(message, db):
+    await open_platforms(message, db, "sale")
+
+
+@router.message(F.text == texts.BTN_HELP)
+async def help_text(message: Message, db: Database) -> None:
+    from .start import cmd_help
+
+    await cmd_help(message, db)
+
+
+@router.message(F.text == texts.BTN_SEARCH)
+async def search_button(message: Message, db: Database) -> None:
+    if await db.games_count() == 0:
+        await show(message, db, "search", texts.EMPTY_CATALOG, search_inline_kb())
         return
-    await message.answer(texts.PICK_PLATFORM, reply_markup=platform_kb("sale"))
+    set_nav(message.from_user.id, screen="search")
+    await show(message, db, "search", texts.SEARCH_HINT, search_inline_kb())
 
 
 @router.callback_query(F.data.startswith("plat:"))
-async def pick_platform_screen(callback: CallbackQuery) -> None:
-    if not callback.message or not callback.data:
+async def pick_platform_screen(callback: CallbackQuery, db: Database) -> None:
+    if not callback.data:
         await callback.answer()
         return
     source = callback.data.split(":", 1)[1]
-    await callback.message.edit_text(texts.PICK_PLATFORM, reply_markup=platform_kb(source))
+    await open_platforms(callback, db, source)
     await callback.answer()
 
 
@@ -78,7 +106,54 @@ async def view_game(callback: CallbackQuery, db: Database) -> None:
     if not game:
         await callback.answer("Игра не найдена", show_alert=True)
         return
-    await send_game_card(callback, db, game)
+    nav = get_nav(callback.from_user.id)
+    set_nav(
+        callback.from_user.id,
+        screen="game",
+        source=nav.get("source", "cat"),
+        platform=nav.get("platform", "all"),
+        genre=nav.get("genre", "ALL"),
+        page=nav.get("page", 0),
+        genre_page=nav.get("genre_page", 0),
+        from_screen=nav.get("screen"),
+        my_page=nav.get("my_page", 0),
+        product_id=product_id,
+    )
+    watching = await db.is_watching(callback.from_user.id, product_id)
+    history = await db.history(product_id, limit=10)
+    text = game_card(game, watching, history)
+    await show(
+        callback,
+        db,
+        f"cover:{product_id}",
+        text,
+        game_kb(game, watching),
+        cover_url=game.get("cover_url"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nav:back")
+async def nav_back(callback: CallbackQuery, db: Database) -> None:
+    nav = get_nav(callback.from_user.id)
+    prev = nav.get("from_screen")
+    if prev == "my":
+        from .watchlist import open_my
+
+        await open_my(callback, db, page=int(nav.get("my_page") or 0))
+    elif prev == "list" or nav.get("genre"):
+        await _show_games(
+            callback,
+            db,
+            nav.get("platform") or "all",
+            nav.get("genre") or "ALL",
+            int(nav.get("page") or 0),
+            source=nav.get("source") or "cat",
+        )
+    else:
+        from .start import show_home
+
+        await show_home(callback, db)
     await callback.answer()
 
 
@@ -92,7 +167,7 @@ async def toggle_watch(callback: CallbackQuery, db: Database) -> None:
     watching = await db.toggle_watch(callback.from_user.id, product_id)
     history = await db.history(product_id, limit=10)
     text = game_card(game, watching, history)
-    kb = game_kb(game, watching)
+    kb = game_kb(game, watching, back=not bool(callback.inline_message_id))
     try:
         if callback.inline_message_id:
             await callback.bot.edit_message_text(
@@ -110,14 +185,6 @@ async def toggle_watch(callback: CallbackQuery, db: Database) -> None:
     await callback.answer(texts.WATCH_ON if watching else texts.WATCH_OFF)
 
 
-@router.message(F.text == texts.BTN_SEARCH)
-async def search_button(message: Message, db: Database) -> None:
-    if await db.games_count() == 0:
-        await message.answer(texts.EMPTY_CATALOG)
-        return
-    await message.answer(texts.SEARCH_HINT, reply_markup=search_inline_kb())
-
-
 @router.message(
     F.text
     & ~F.via_bot
@@ -131,12 +198,10 @@ async def search_text(message: Message, db: Database) -> None:
     if not text or text.startswith("/") or len(text) > 80:
         return
     if await db.games_count() == 0:
-        await message.answer(texts.EMPTY_CATALOG)
+        await show(message, db, "search", texts.EMPTY_CATALOG, search_inline_kb())
         return
-    await message.answer(
-        texts.SEARCH_HINT,
-        reply_markup=search_inline_kb(text),
-    )
+    set_nav(message.from_user.id, screen="search")
+    await show(message, db, "search", texts.SEARCH_HINT, search_inline_kb(text))
 
 
 async def _show_genres(
@@ -146,14 +211,22 @@ async def _show_genres(
     page: int,
     source: str,
 ) -> None:
-    if not callback.message:
-        await callback.answer()
-        return
     plat = None if platform == "all" else platform
     genres = await db.list_genres(plat)
-    await callback.message.edit_text(
+    set_nav(
+        callback.from_user.id,
+        screen="genres",
+        source=source,
+        platform=platform,
+        genre_page=page,
+    )
+    asset = "ps4" if platform == "PS4" else "ps5" if platform == "PS5" else "catalog"
+    await show(
+        callback,
+        db,
+        asset,
         texts.PICK_GENRE.format(platform=_plat_label(platform)),
-        reply_markup=genre_kb(platform, genres, page, source=source),
+        genre_kb(platform, genres, page, source=source),
     )
     await callback.answer()
 
@@ -166,9 +239,6 @@ async def _show_games(
     page: int,
     source: str,
 ) -> None:
-    if not callback.message:
-        await callback.answer()
-        return
     plat = None if platform == "all" else platform
     games, total = await db.browse(plat, genre, page, GAMES_PER_PAGE)
     if total == 0:
@@ -178,22 +248,36 @@ async def _show_games(
     text = texts.GAME_LIST.format(title=title, total=total)
     if total > GAMES_PER_PAGE:
         pages = (total + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
-        text += f"\nстр. {page + 1}/{pages}"
-    await callback.message.edit_text(
+        text += f"\n📄 {page + 1}/{pages}"
+    set_nav(
+        callback.from_user.id,
+        screen="list",
+        source=source,
+        platform=platform,
+        genre=genre,
+        page=page,
+        genre_page=get_nav(callback.from_user.id).get("genre_page", 0),
+    )
+    asset = asset_key_for_genre(genre, platform)
+    await show(
+        callback,
+        db,
+        asset,
         text,
-        reply_markup=games_kb(platform, genre, games, page, total, source=source),
+        games_kb(platform, genre, games, page, total, source=source),
     )
     await callback.answer()
 
 
 async def _list_title(db: Database, platform: str, genre: str) -> str:
     plat = _plat_label(platform)
+    emoji = texts.GENRE_EMOJI.get(genre, "🎮")
     if genre == "SALE":
-        return f"Скидки · {plat}"
+        return f"🔥 Скидки · {plat}"
     if genre == "ALL":
-        return f"Все игры · {plat}"
+        return f"📚 Все игры · {plat}"
     genres = await db.list_genres(None if platform == "all" else platform)
     for item in genres:
         if item["genre_key"] == genre:
-            return f"{item['genre_name']} · {plat}"
-    return f"{genre} · {plat}"
+            return f"{emoji} {item['genre_name']} · {plat}"
+    return f"{emoji} {genre} · {plat}"
