@@ -135,7 +135,13 @@ def store_kb(game: dict[str, Any]) -> InlineKeyboardMarkup | None:
     )
 
 
-def game_kb(game: dict[str, Any], watching: bool, back: bool = True) -> InlineKeyboardMarkup:
+def game_kb(
+    game: dict[str, Any],
+    watching: bool,
+    back: bool = True,
+    index: int | None = None,
+    total: int | None = None,
+) -> InlineKeyboardMarkup:
     product_id = game["product_id"]
     watch = "⭐ Слежу" if watching else "☆ Следить"
     rows: list[list[InlineKeyboardButton]] = [
@@ -144,6 +150,16 @@ def game_kb(game: dict[str, Any], watching: bool, back: bool = True) -> InlineKe
     store = game.get("store_url")
     if store:
         rows.append([InlineKeyboardButton(text="🛒 В магазин", url=store)])
+    if index is not None and total is not None and total > 1:
+        pager: list[InlineKeyboardButton] = []
+        if index > 0:
+            pager.append(InlineKeyboardButton(text="⬅️ Пред", callback_data="gv:prev"))
+        pager.append(
+            InlineKeyboardButton(text=f"{index + 1}/{total}", callback_data="noop")
+        )
+        if index + 1 < total:
+            pager.append(InlineKeyboardButton(text="След ➡️", callback_data="gv:next"))
+        rows.append(pager)
     if back:
         rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="nav:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

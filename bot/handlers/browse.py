@@ -102,34 +102,38 @@ async def game_list(callback: CallbackQuery, db: Database) -> None:
 @router.callback_query(F.data.startswith("v:"))
 async def view_game(callback: CallbackQuery, db: Database) -> None:
     product_id = callback.data.split(":", 1)[1]
-    game = await db.get_game(product_id)
-    if not game:
+    if not await _open_game(callback, db, product_id):
         await callback.answer("Игра не найдена", show_alert=True)
         return
+    await callback.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def noop(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("gv:"))
+async def game_step(callback: CallbackQuery, db: Database) -> None:
     nav = get_nav(callback.from_user.id)
-    set_nav(
-        callback.from_user.id,
-        screen="game",
-        source=nav.get("source", "cat"),
-        platform=nav.get("platform", "all"),
-        genre=nav.get("genre", "ALL"),
-        page=nav.get("page", 0),
-        genre_page=nav.get("genre_page", 0),
-        from_screen=nav.get("screen"),
-        my_page=nav.get("my_page", 0),
-        product_id=product_id,
-    )
-    watching = await db.is_watching(callback.from_user.id, product_id)
-    history = await db.history(product_id, limit=10)
-    text = game_card(game, watching, history)
-    await show(
-        callback,
-        db,
-        f"cover:{product_id}",
-        text,
-        game_kb(game, watching),
-        cover_url=game.get("cover_url"),
-    )
+    step = -1 if (callback.data or "").endswith("prev") else 1
+    index = int(nav.get("index") or 0) + step
+    total = int(nav.get("total") or 0)
+    if total <= 0:
+        await callback.answer()
+        return
+    index = max(0, min(index, total - 1))
+    if nav.get("from_screen") == "my":
+        product_id, total = await db.watch_at(callback.from_user.id, index)
+    else:
+        plat = None if nav.get("platform") in {None, "all"} else nav.get("platform")
+        product_id, total = await db.browse_at(plat, nav.get("genre") or "ALL", index)
+    if not product_id:
+        await callback.answer("Игра не найдена", show_alert=True)
+        return
+    if not await _open_game(callback, db, product_id, index=index, total=total):
+        await callback.answer("Игра не найдена", show_alert=True)
+        return
     await callback.answer()
 
 
@@ -167,7 +171,14 @@ async def toggle_watch(callback: CallbackQuery, db: Database) -> None:
     watching = await db.toggle_watch(callback.from_user.id, product_id)
     history = await db.history(product_id, limit=10)
     text = game_card(game, watching, history)
-    kb = game_kb(game, watching, back=not bool(callback.inline_message_id))
+    nav = get_nav(callback.from_user.id)
+    kb = game_kb(
+        game,
+        watching,
+        back=not bool(callback.inline_message_id),
+        index=nav.get("index"),
+        total=nav.get("total"),
+    )
     try:
         if callback.inline_message_id:
             await callback.bot.edit_message_text(
@@ -202,6 +213,71 @@ async def search_text(message: Message, db: Database) -> None:
         return
     set_nav(message.from_user.id, screen="search")
     await show(message, db, "search", texts.SEARCH_HINT, search_inline_kb(text))
+
+
+async def _open_game(
+    callback: CallbackQuery,
+    db: Database,
+    product_id: str,
+    index: int | None = None,
+    total: int | None = None,
+) -> bool:
+    game = await db.get_game(product_id)
+    if not game or not callback.from_user:
+        return False
+    nav = get_nav(callback.from_user.id)
+    from_screen = nav.get("screen")
+    if from_screen == "game":
+        from_screen = nav.get("from_screen")
+    if index is None or total is None:
+        index, total = await _index_in_list(db, callback.from_user.id, product_id, nav)
+    set_nav(
+        callback.from_user.id,
+        screen="game",
+        source=nav.get("source", "cat"),
+        platform=nav.get("platform", "all"),
+        genre=nav.get("genre", "ALL"),
+        page=nav.get("page", 0),
+        genre_page=nav.get("genre_page", 0),
+        from_screen=from_screen,
+        my_page=nav.get("my_page", 0),
+        product_id=product_id,
+        index=index,
+        total=total,
+    )
+    watching = await db.is_watching(callback.from_user.id, product_id)
+    history = await db.history(product_id, limit=10)
+    text = game_card(game, watching, history)
+    await show(
+        callback,
+        db,
+        f"cover:{product_id}",
+        text,
+        game_kb(game, watching, index=index, total=total),
+        cover_url=game.get("cover_url"),
+    )
+    return True
+
+
+async def _index_in_list(
+    db: Database, user_id: int, product_id: str, nav: dict
+) -> tuple[int, int]:
+    if nav.get("screen") == "my" or nav.get("from_screen") == "my":
+        games = await db.user_watches(user_id)
+        ids = [g["product_id"] for g in games]
+        try:
+            return ids.index(product_id), len(ids)
+        except ValueError:
+            return 0, len(ids)
+    plat = None if nav.get("platform") in {None, "all"} else nav.get("platform")
+    genre = nav.get("genre") or "ALL"
+    page = int(nav.get("page") or 0)
+    games, total = await db.browse(plat, genre, page, GAMES_PER_PAGE)
+    try:
+        pos = next(i for i, g in enumerate(games) if g["product_id"] == product_id)
+    except StopIteration:
+        pos = 0
+    return page * GAMES_PER_PAGE + pos, total
 
 
 async def _show_genres(

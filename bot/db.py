@@ -407,13 +407,7 @@ class Database:
         cur = await self.db.execute(sql, args)
         return [dict(r) for r in await cur.fetchall()]
 
-    async def browse(
-        self,
-        platform: str | None,
-        genre: str,
-        page: int,
-        per_page: int = PAGE,
-    ) -> tuple[list[dict[str, Any]], int]:
+    def _browse_parts(self, platform: str | None, genre: str) -> tuple[str, str, list[Any], str]:
         join, args = self._platform_join(platform)
         where = ["g.classification NOT IN ('DEMO', 'SOUNDTRACK', 'GAME_APPLICATION')"]
         if genre == "SALE":
@@ -426,7 +420,16 @@ class Database:
             order = "g.name"
         else:
             order = "g.name"
-        where_sql = " AND ".join(where)
+        return join, " AND ".join(where), args, order
+
+    async def browse(
+        self,
+        platform: str | None,
+        genre: str,
+        page: int,
+        per_page: int = PAGE,
+    ) -> tuple[list[dict[str, Any]], int]:
+        join, where_sql, args, order = self._browse_parts(platform, genre)
         count_sql = f"SELECT COUNT(DISTINCT g.product_id) FROM games g {join} WHERE {where_sql}"
         cur = await self.db.execute(count_sql, args)
         total = int((await cur.fetchone())[0])
@@ -441,6 +444,53 @@ class Database:
         """
         cur = await self.db.execute(list_sql, [*args, per_page, offset])
         return [dict(r) for r in await cur.fetchall()], total
+
+    async def browse_at(
+        self, platform: str | None, genre: str, index: int
+    ) -> tuple[str | None, int]:
+        join, where_sql, args, order = self._browse_parts(platform, genre)
+        cur = await self.db.execute(
+            f"SELECT COUNT(DISTINCT g.product_id) FROM games g {join} WHERE {where_sql}",
+            args,
+        )
+        total = int((await cur.fetchone())[0])
+        if total <= 0:
+            return None, 0
+        index = max(0, min(index, total - 1))
+        cur = await self.db.execute(
+            f"""
+            SELECT g.product_id FROM games g
+            {join}
+            WHERE {where_sql}
+            GROUP BY g.product_id
+            ORDER BY {order}
+            LIMIT 1 OFFSET ?
+            """,
+            [*args, index],
+        )
+        row = await cur.fetchone()
+        return (str(row[0]) if row else None), total
+
+    async def watch_at(self, user_id: int, index: int) -> tuple[str | None, int]:
+        cur = await self.db.execute(
+            "SELECT COUNT(*) FROM watches WHERE user_id=?", (user_id,)
+        )
+        total = int((await cur.fetchone())[0])
+        if total <= 0:
+            return None, 0
+        index = max(0, min(index, total - 1))
+        cur = await self.db.execute(
+            """
+            SELECT g.product_id FROM watches w
+            JOIN games g ON g.product_id = w.product_id
+            WHERE w.user_id=?
+            ORDER BY g.name
+            LIMIT 1 OFFSET ?
+            """,
+            (user_id, index),
+        )
+        row = await cur.fetchone()
+        return (str(row[0]) if row else None), total
 
     async def search(self, query: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
         q = query.strip().casefold()

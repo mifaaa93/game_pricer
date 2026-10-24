@@ -91,6 +91,15 @@ async def test_browse_genre_and_watch(db: Database) -> None:
     assert await db.is_watching(1, "A")
     assert await db.watchers("A") == [1]
     assert await db.genre_keys() == {"ACTION"}
+    await db.apply_offer(_offer("C", 15000, name="Charlie"), notify=False)
+    await db.add_genre("C", "ACTION", "Экшен")
+    pid, total = await db.browse_at("PS4", "ACTION", 1)
+    assert total == 2
+    assert pid in {"A", "C"}
+    await db.toggle_watch(1, "C")
+    wid, wtotal = await db.watch_at(1, 0)
+    assert wtotal == 2
+    assert wid in {"A", "C"}
 
 
 @pytest.mark.asyncio
