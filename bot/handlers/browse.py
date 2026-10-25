@@ -127,7 +127,12 @@ async def game_step(callback: CallbackQuery, db: Database) -> None:
         product_id, total = await db.watch_at(callback.from_user.id, index)
     else:
         plat = None if nav.get("platform") in {None, "all"} else nav.get("platform")
-        product_id, total = await db.browse_at(plat, nav.get("genre") or "ALL", index)
+        product_id, total = await db.browse_at(
+            plat,
+            nav.get("genre") or "ALL",
+            index,
+            sale_sort=nav.get("sale_sort") or "pct",
+        )
     if not product_id:
         await callback.answer("Игра не найдена", show_alert=True)
         return
@@ -244,6 +249,7 @@ async def _open_game(
         product_id=product_id,
         index=index,
         total=total,
+        sale_sort=nav.get("sale_sort", "pct"),
     )
     watching = await db.is_watching(callback.from_user.id, product_id)
     history = await db.history(product_id, limit=10)
@@ -272,7 +278,9 @@ async def _index_in_list(
     plat = None if nav.get("platform") in {None, "all"} else nav.get("platform")
     genre = nav.get("genre") or "ALL"
     page = int(nav.get("page") or 0)
-    games, total = await db.browse(plat, genre, page, GAMES_PER_PAGE)
+    games, total = await db.browse(
+        plat, genre, page, GAMES_PER_PAGE, sale_sort=nav.get("sale_sort") or "pct"
+    )
     try:
         pos = next(i for i, g in enumerate(games) if g["product_id"] == product_id)
     except StopIteration:
@@ -307,6 +315,23 @@ async def _show_genres(
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("ss:"))
+async def sale_sort(callback: CallbackQuery, db: Database) -> None:
+    mode = (callback.data or "ss:pct").split(":", 1)[1]
+    if mode not in {"pct", "amt"}:
+        mode = "pct"
+    nav = get_nav(callback.from_user.id)
+    await _show_games(
+        callback,
+        db,
+        nav.get("platform") or "all",
+        "SALE",
+        0,
+        source=nav.get("source") or "sale",
+        sale_sort=mode,
+    )
+
+
 async def _show_games(
     callback: CallbackQuery,
     db: Database,
@@ -314,13 +339,17 @@ async def _show_games(
     genre: str,
     page: int,
     source: str,
+    sale_sort: str | None = None,
 ) -> None:
+    nav = get_nav(callback.from_user.id)
+    if sale_sort is None:
+        sale_sort = nav.get("sale_sort") or "pct"
     plat = None if platform == "all" else platform
-    games, total = await db.browse(plat, genre, page, GAMES_PER_PAGE)
+    games, total = await db.browse(plat, genre, page, GAMES_PER_PAGE, sale_sort=sale_sort)
     if total == 0:
         await callback.answer(texts.NO_GAMES, show_alert=True)
         return
-    title = await _list_title(db, platform, genre)
+    title = await _list_title(db, platform, genre, sale_sort=sale_sort)
     text = texts.GAME_LIST.format(title=title, total=total)
     if total > GAMES_PER_PAGE:
         pages = (total + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
@@ -332,7 +361,8 @@ async def _show_games(
         platform=platform,
         genre=genre,
         page=page,
-        genre_page=get_nav(callback.from_user.id).get("genre_page", 0),
+        genre_page=nav.get("genre_page", 0),
+        sale_sort=sale_sort,
     )
     asset = asset_key_for_genre(genre, platform)
     await show(
@@ -340,16 +370,17 @@ async def _show_games(
         db,
         asset,
         text,
-        games_kb(platform, genre, games, page, total, source=source),
+        games_kb(platform, genre, games, page, total, source=source, sale_sort=sale_sort),
     )
     await callback.answer()
 
 
-async def _list_title(db: Database, platform: str, genre: str) -> str:
+async def _list_title(db: Database, platform: str, genre: str, sale_sort: str = "pct") -> str:
     plat = _plat_label(platform)
     emoji = texts.GENRE_EMOJI.get(genre, "🎮")
     if genre == "SALE":
-        return f"🔥 Скидки · {plat}"
+        how = "по сумме" if sale_sort == "amt" else "по %"
+        return f"🔥 Скидки · {plat} · {how}"
     if genre == "ALL":
         return f"📚 Все игры · {plat}"
     genres = await db.list_genres(None if platform == "all" else platform)

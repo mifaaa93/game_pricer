@@ -407,13 +407,19 @@ class Database:
         cur = await self.db.execute(sql, args)
         return [dict(r) for r in await cur.fetchall()]
 
-    def _browse_parts(self, platform: str | None, genre: str) -> tuple[str, str, list[Any], str]:
+    def _browse_parts(
+        self, platform: str | None, genre: str, sale_sort: str = "pct"
+    ) -> tuple[str, str, list[Any], str]:
         join, args = self._platform_join(platform)
         where = ["g.classification NOT IN ('DEMO', 'SOUNDTRACK', 'GAME_APPLICATION')"]
         if genre == "SALE":
             where.append("g.discount_percent IS NOT NULL AND g.discount_percent > 0")
             where.append("COALESCE(g.plus_included, 0) = 0")
-            order = "g.discount_percent DESC, g.name"
+            amount = "(COALESCE(g.base_price, 0) - COALESCE(g.current_price, 0))"
+            if sale_sort == "amt":
+                order = f"{amount} DESC, g.discount_percent DESC, g.name"
+            else:
+                order = f"g.discount_percent DESC, {amount} DESC, g.name"
         elif genre and genre not in {"ALL", "*"}:
             join += " JOIN game_genres gg ON gg.product_id = g.product_id AND gg.genre_key = ?"
             args.append(genre)
@@ -428,8 +434,9 @@ class Database:
         genre: str,
         page: int,
         per_page: int = PAGE,
+        sale_sort: str = "pct",
     ) -> tuple[list[dict[str, Any]], int]:
-        join, where_sql, args, order = self._browse_parts(platform, genre)
+        join, where_sql, args, order = self._browse_parts(platform, genre, sale_sort)
         count_sql = f"SELECT COUNT(DISTINCT g.product_id) FROM games g {join} WHERE {where_sql}"
         cur = await self.db.execute(count_sql, args)
         total = int((await cur.fetchone())[0])
@@ -446,9 +453,9 @@ class Database:
         return [dict(r) for r in await cur.fetchall()], total
 
     async def browse_at(
-        self, platform: str | None, genre: str, index: int
+        self, platform: str | None, genre: str, index: int, sale_sort: str = "pct"
     ) -> tuple[str | None, int]:
-        join, where_sql, args, order = self._browse_parts(platform, genre)
+        join, where_sql, args, order = self._browse_parts(platform, genre, sale_sort)
         cur = await self.db.execute(
             f"SELECT COUNT(DISTINCT g.product_id) FROM games g {join} WHERE {where_sql}",
             args,

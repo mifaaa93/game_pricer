@@ -101,11 +101,22 @@ def games_kb(
     page: int,
     total: int,
     source: str = "cat",
+    sale_sort: str = "pct",
 ) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
+    rows: list[list[InlineKeyboardButton]] = []
+    if genre == "SALE":
+        pct_label = "🔥 По %" if sale_sort != "pct" else "• 🔥 По %"
+        amt_label = "💸 По сумме" if sale_sort != "amt" else "• 💸 По сумме"
+        rows.append(
+            [
+                InlineKeyboardButton(text=pct_label, callback_data="ss:pct"),
+                InlineKeyboardButton(text=amt_label, callback_data="ss:amt"),
+            ]
+        )
+    rows.extend(
         [InlineKeyboardButton(text=list_button_text(g), callback_data=f"v:{g['product_id']}")]
         for g in games
-    ]
+    )
     nav: list[InlineKeyboardButton] = []
     total_pages = _pages(total, GAMES_PER_PAGE)
     if page > 0:

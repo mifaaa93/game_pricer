@@ -103,6 +103,22 @@ async def test_browse_genre_and_watch(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sale_sort_percent_and_amount(db: Database) -> None:
+    await db.apply_offer(
+        _offer("A", 5000, base_price=10000, discount_text="-50%", discount_percent=50, name="Small"),
+        notify=False,
+    )
+    await db.apply_offer(
+        _offer("B", 40000, base_price=50000, discount_text="-20%", discount_percent=20, name="Big"),
+        notify=False,
+    )
+    by_pct, _ = await db.browse("PS4", "SALE", 0, sale_sort="pct")
+    assert [g["product_id"] for g in by_pct] == ["A", "B"]
+    by_amt, _ = await db.browse("PS4", "SALE", 0, sale_sort="amt")
+    assert [g["product_id"] for g in by_amt] == ["B", "A"]
+
+
+@pytest.mark.asyncio
 async def test_browse_sale_skips_plus_catalog(db: Database) -> None:
     await db.apply_offer(
         _offer("A", 5000, base_price=10000, discount_text="-50%", discount_percent=50, name="Sale"),
