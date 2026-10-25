@@ -9,10 +9,20 @@ from aiogram.types import InlineKeyboardMarkup
 
 from .config import Config
 from .db import Database
-from .formatters import channel_caption, channel_digest, game_card, user_change
+from .formatters import STORE_BASE, channel_caption, game_card, user_change
 from .keyboards import game_kb, store_kb
 
 log = logging.getLogger(__name__)
+
+
+def _channel_rank(event: dict) -> int:
+    if event.get("kind") != "new":
+        old_p = event.get("old_price")
+        new_p = event.get("new_price")
+        if old_p is not None and new_p is not None and new_p < old_p:
+            return 0
+        return 1
+    return 2
 
 
 class Notifier:
@@ -84,50 +94,42 @@ class Notifier:
         events = await self.db.pending_events("notified_channel", limit=80)
         if not events:
             return
-        changes = [e for e in events if e.get("kind") != "new"]
-        news = [e for e in events if e.get("kind") == "new"]
-        changes.sort(
-            key=lambda e: (
-                0
-                if (e.get("old_price") is not None and e.get("new_price") is not None and e["new_price"] < e["old_price"])
-                else 1,
-                e.get("id") or 0,
-            )
-        )
+        events.sort(key=lambda e: (_channel_rank(e), e.get("id") or 0))
+        batch = events[:15]
         sent_ids: list[int] = []
-        batch = changes[:15]
         chat_id = self.config.channel_id
         for event in batch:
-            game = await self.db.get_game(event["product_id"])
-            if not game:
-                game = {
-                    "product_id": event["product_id"],
-                    "name": event.get("name"),
-                    "cover_url": event.get("cover_url"),
-                    "store_url": event.get("store_url"),
-                    "current_price": event.get("new_price"),
-                    "base_price": event.get("new_base"),
-                    "discount_text": event.get("new_discount"),
-                    "discount_percent": event.get("discount_percent"),
-                    "platforms": [],
-                    "genres": [],
-                }
-            history = await self.db.history(event["product_id"], limit=10)
-            text = channel_caption(event, game, history)
-            await self._send(chat_id, text, photo=game.get("cover_url"), reply_markup=store_kb(game))
+            await self._post_channel_card(chat_id, event)
             sent_ids.append(event["id"])
             await asyncio.sleep(0.4)
-        if news:
-            shown = news[:20]
-            extra = len(news) - len(shown)
-            messages = channel_digest(shown, header="PlayStation Store UA — новые игры")
-            if extra > 0 and messages:
-                messages[-1] += f"\n\nещё {extra} новых игр в каталоге"
-            for text in messages:
-                await self._send(chat_id, text)
-            sent_ids.extend(e["id"] for e in news)
         await self.db.mark_events(sent_ids, "notified_channel")
-        log.info("channel: %s cards, %s new", len(batch), len(news))
+        log.info("channel: %s cards", len(batch))
+
+    async def _post_channel_card(self, chat_id: int, event: dict) -> None:
+        game = await self.db.get_game(event["product_id"])
+        if not game:
+            game = {
+                "product_id": event["product_id"],
+                "name": event.get("name"),
+                "cover_url": event.get("cover_url"),
+                "store_url": event.get("store_url"),
+                "current_price": event.get("new_price"),
+                "base_price": event.get("new_base"),
+                "discount_text": event.get("new_discount"),
+                "discount_percent": event.get("discount_percent"),
+                "platforms": [],
+                "genres": [],
+            }
+        if not game.get("store_url") and game.get("product_id"):
+            game["store_url"] = f"{STORE_BASE}{game['product_id']}"
+        history = await self.db.history(event["product_id"], limit=10)
+        text = channel_caption(event, game, history)
+        await self._send(
+            chat_id,
+            text,
+            photo=game.get("cover_url"),
+            reply_markup=store_kb(game),
+        )
 
     async def _flush_users(self) -> None:
         events = await self.db.pending_events("notified_users", limit=100)

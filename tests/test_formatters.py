@@ -1,4 +1,4 @@
-from bot.formatters import change_line, channel_caption, channel_digest, game_card
+from bot.formatters import change_line, channel_caption, game_card
 
 
 def test_sale_card() -> None:
@@ -58,18 +58,23 @@ def test_channel_line_links_to_store() -> None:
     )
     assert 'href="https://store.playstation.com/uk-ua/product/EP1003-CUSA02092_00-DOOM1993"' in html
     assert "DOOM (1993)" in html
-    digest = channel_digest(
-        [
-            {
-                "kind": "change",
-                "name": "Ginga Force",
-                "product_id": "EP4034-CUSA19582_00-0000GINGAFORCEEU",
-                "old_price": 64900,
-                "new_price": 6490,
-            }
-        ]
+
+
+def test_channel_caption_new_game() -> None:
+    html = channel_caption(
+        {"kind": "new", "new_price": 64900},
+        {
+            "name": "Ginga Force",
+            "platforms": ["PS4"],
+            "current_price": 64900,
+            "base_price": 64900,
+            "cover_url": "https://example.com/cover.jpg",
+            "store_url": "https://store.playstation.com/uk-ua/product/X",
+        },
     )
-    assert "store.playstation.com/uk-ua/product/EP4034-CUSA19582_00-0000GINGAFORCEEU" in digest[0]
+    assert "Новая игра" in html
+    assert "Ginga Force" in html
+    assert "649 ₴" in html
 
 
 def test_channel_caption_has_drop_and_history() -> None:

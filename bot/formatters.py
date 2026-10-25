@@ -174,24 +174,6 @@ def change_line(event: dict[str, Any]) -> str:
     return f"{arrow} {name}\n{old} → <b>{new}</b>{extra}{tail}"
 
 
-def channel_digest(events: list[dict[str, Any]], header: str | None = None) -> list[str]:
-    title = header or "PlayStation Store UA — изменения цен"
-    chunks: list[str] = []
-    buf: list[str] = [f"<b>{escape(title)}</b>"]
-    size = len(buf[0])
-    for event in events:
-        block = change_line(event)
-        if size + len(block) + 2 > 3500:
-            chunks.append("\n\n".join(buf))
-            buf = [f"<b>{escape(title)}</b>"]
-            size = len(buf[0])
-        buf.append(block)
-        size += len(block) + 2
-    if len(buf) > 1:
-        chunks.append("\n\n".join(buf))
-    return chunks
-
-
 def user_change(event: dict[str, Any]) -> str:
     return "<b>Изменение цены</b>\n" + change_line(event)
 
