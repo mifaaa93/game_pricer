@@ -122,15 +122,28 @@ async def show(
         user_id = event.from_user.id
         chat = event.message.chat if event.message else None
         chat_id = chat.id if chat else user_id
+        message_id = event.message.message_id if event.message else None
         bot = event.bot
+        edit = True
     else:
         if not event.from_user:
             return None
         user_id = event.from_user.id
         chat_id = event.chat.id
+        message_id = None
         bot = event.bot
+        edit = False
     return await render(
-        bot, db, user_id, chat_id, asset_key, caption, markup, cover_url=cover_url
+        bot,
+        db,
+        user_id,
+        chat_id,
+        asset_key,
+        caption,
+        markup,
+        cover_url=cover_url,
+        edit=edit,
+        message_id=message_id,
     )
 
 
@@ -157,16 +170,18 @@ async def render(
     caption: str,
     markup: InlineKeyboardMarkup | None,
     cover_url: str | None = None,
+    edit: bool = False,
+    message_id: int | None = None,
 ) -> Message | None:
     src = await _source(db, asset_key, cover_url)
     media = InputMediaPhoto(media=src, caption=caption, parse_mode=ParseMode.HTML)
-    last = _MSG.get(user_id)
-    if last:
+    target_id = message_id
+    if edit and target_id:
         try:
             msg = await bot.edit_message_media(
                 media=media,
-                chat_id=last[0],
-                message_id=last[1],
+                chat_id=chat_id,
+                message_id=target_id,
                 reply_markup=markup,
             )
             if isinstance(msg, Message):
@@ -178,6 +193,7 @@ async def render(
             if "file" in str(exc).lower() or "wrong file" in str(exc).lower():
                 await db.drop_media(asset_key)
                 src = await _source(db, asset_key, cover_url)
+                media = InputMediaPhoto(media=src, caption=caption, parse_mode=ParseMode.HTML)
     try:
         msg = await bot.send_photo(chat_id, photo=src, caption=caption, reply_markup=markup)
     except TelegramBadRequest:

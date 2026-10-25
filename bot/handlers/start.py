@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 
 from .. import texts
 from ..config import Config
@@ -30,11 +30,6 @@ async def show_home(event: Message | CallbackQuery, db: Database, name: str | No
 @router.message(CommandStart())
 async def cmd_start(message: Message, db: Database, command: CommandObject) -> None:
     await db.upsert_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
-    try:
-        gone = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
-        await gone.delete()
-    except Exception:
-        pass
     payload = (command.args or "").strip()
     if payload:
         game = await db.get_game(payload)
