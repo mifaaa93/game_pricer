@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardMarkup
 from .config import Config
 from .db import Database
 from .formatters import STORE_BASE, channel_caption, game_card, user_change
-from .keyboards import game_kb, store_kb
+from .keyboards import channel_kb, game_kb
 
 log = logging.getLogger(__name__)
 
@@ -30,12 +30,16 @@ class Notifier:
         self.bot = bot
         self.db = db
         self.config = config
+        self.bot_username: str | None = None
         self._stop = asyncio.Event()
 
     def stop(self) -> None:
         self._stop.set()
 
     async def run_forever(self) -> None:
+        if not self.bot_username:
+            me = await self.bot.get_me()
+            self.bot_username = me.username
         while not self._stop.is_set():
             try:
                 await self.flush()
@@ -128,7 +132,7 @@ class Notifier:
             chat_id,
             text,
             photo=game.get("cover_url"),
-            reply_markup=store_kb(game),
+            reply_markup=channel_kb(game, self.bot_username),
         )
 
     async def _flush_users(self) -> None:

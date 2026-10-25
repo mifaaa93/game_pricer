@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, ChatMemberUpdated, Message, ReplyKeyboardRemove
 
 from .. import texts
 from ..config import Config
 from ..db import Database
-from ..keyboards import help_kb, home_kb, search_inline_kb
+from ..formatters import game_card
+from ..keyboards import game_kb, help_kb, home_kb, search_inline_kb
 from ..screens import set_nav, show
 
 router = Router()
@@ -27,13 +28,29 @@ async def show_home(event: Message | CallbackQuery, db: Database, name: str | No
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, db: Database) -> None:
+async def cmd_start(message: Message, db: Database, command: CommandObject) -> None:
     await db.upsert_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
     try:
         gone = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
         await gone.delete()
     except Exception:
         pass
+    payload = (command.args or "").strip()
+    if payload:
+        game = await db.get_game(payload)
+        if game:
+            watching = await db.is_watching(message.from_user.id, payload)
+            history = await db.history(payload, limit=10)
+            set_nav(message.from_user.id, screen="game", from_screen="home", product_id=payload)
+            await show(
+                message,
+                db,
+                f"cover:{payload}",
+                game_card(game, watching, history),
+                game_kb(game, watching),
+                cover_url=game.get("cover_url"),
+            )
+            return
     await show_home(message, db)
 
 

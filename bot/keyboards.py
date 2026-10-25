@@ -126,13 +126,21 @@ def games_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def store_kb(game: dict[str, Any]) -> InlineKeyboardMarkup | None:
+def channel_kb(game: dict[str, Any], bot_username: str | None = None) -> InlineKeyboardMarkup | None:
     store = game.get("store_url")
-    if not store:
+    product_id = game.get("product_id") or ""
+    row: list[InlineKeyboardButton] = []
+    if store:
+        row.append(InlineKeyboardButton(text="🛒 В магазин", url=store))
+    if bot_username:
+        if product_id and len(product_id) <= 64:
+            bot_url = f"https://t.me/{bot_username}?start={product_id}"
+        else:
+            bot_url = f"https://t.me/{bot_username}"
+        row.append(InlineKeyboardButton(text="🤖 В боте", url=bot_url))
+    if not row:
         return None
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🛒 В магазин", url=store)]]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
 def game_kb(
