@@ -70,6 +70,25 @@ async def test_price_drop_creates_event(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sale_start_same_base_creates_drop(db: Database) -> None:
+    await db.apply_offer(_offer("A", 64900, base_price=64900, name="GoW"), notify=False)
+    event = await db.apply_offer(
+        _offer("A", 6490, base_price=64900, discount_text="-90%", discount_percent=90, name="GoW"),
+        notify=True,
+    )
+    assert event is not None
+    assert event["old_price"] == 64900
+    assert event["new_price"] == 6490
+
+
+@pytest.mark.asyncio
+async def test_discount_text_only_does_not_notify(db: Database) -> None:
+    await db.apply_offer(_offer("A", 0, base_price=0, discount_text="foo"), notify=False)
+    event = await db.apply_offer(_offer("A", 0, base_price=0, discount_text="bar"), notify=True)
+    assert event is None
+
+
+@pytest.mark.asyncio
 async def test_same_price_no_event(db: Database) -> None:
     await db.apply_offer(_offer("A", 69900), notify=True)
     event = await db.apply_offer(_offer("A", 69900), notify=True)

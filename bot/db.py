@@ -232,7 +232,7 @@ class Database:
         now = _now()
         async with self._lock:
             cur = await self.db.execute(
-                "SELECT current_price, base_price, discount_text FROM games WHERE product_id=?",
+                "SELECT current_price, base_price, discount_text, discount_percent FROM games WHERE product_id=?",
                 (offer.product_id,),
             )
             prev = await cur.fetchone()
@@ -242,7 +242,7 @@ class Database:
                 changed = (
                     prev["current_price"] != offer.price
                     or prev["base_price"] != offer.base_price
-                    or (prev["discount_text"] or "") != (offer.discount_text or "")
+                    or prev["discount_percent"] != offer.discount_percent
                 )
             await self.db.execute(
                 """
@@ -269,7 +269,7 @@ class Database:
                     last_seen_at=excluded.last_seen_at,
                     last_changed_at=CASE WHEN excluded.current_price IS games.current_price
                         AND excluded.base_price IS games.base_price
-                        AND COALESCE(excluded.discount_text,'') = COALESCE(games.discount_text,'')
+                        AND excluded.discount_percent IS games.discount_percent
                         THEN games.last_changed_at ELSE excluded.last_changed_at END,
                     updated_at=excluded.updated_at
                 """,

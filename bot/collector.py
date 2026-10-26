@@ -6,7 +6,7 @@ import logging
 from .config import Config
 from .db import Database
 from .genres import genre_label
-from .psn import CATEGORIES, PSNClient
+from .psn import CATEGORIES, PRICE_CATEGORIES, PSNClient
 
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class Collector:
         if seeded:
             log.info("empty catalog — first cycle only fills the database, no notifications")
         stats = {"offers": 0, "events": 0}
-        for platform, category_id in CATEGORIES:
+        for platform, category_id in PRICE_CATEGORIES:
             log.info("crawl %s catalog", platform)
             n = 0
             async for offer in self.psn.iter_category(category_id):
